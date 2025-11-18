@@ -27,6 +27,7 @@ class GameController {
         playerTurn = true;
         gameOver = false;
         computerAI.reset();
+        playerOneTurn = true;
     }
 
     ShotResult playerFire(int row, int col) {
@@ -37,21 +38,15 @@ class GameController {
             return ShotResult.already(row, col);
         }
         ShotResult result = aiBoard.fireAt(row, col);
-        if (result.getOutcome() != ShotOutcome.ALREADY) {
-            if (result.getOutcome() == ShotOutcome.SUNK) {
-                aiBoard.markSurroundingCellsAsMiss(result.getShip());
-            }
-            if (aiBoard.allShipsSunk()) {
-                gameOver = true;
-            } else if (result.getOutcome() == ShotOutcome.MISS) {
-                playerTurn = false;
-            }
-        }
+        handleShotResult(aiBoard, result);
         return result;
     }
 
     ShotResult aiFire() {
         if (mode != GameMode.VS_AI) {
+            return null;
+        }
+        if (playerTurn || gameOver) {
             return null;
         }
         if (gameOver) {
@@ -60,14 +55,7 @@ class GameController {
         Point target = computerAI.chooseTarget(playerBoard);
         ShotResult result = playerBoard.fireAt(target.x, target.y);
         computerAI.handleShotResult(target, result, playerBoard);
-        if (result.getOutcome() == ShotOutcome.SUNK) {
-            playerBoard.markSurroundingCellsAsMiss(result.getShip());
-        }
-        if (playerBoard.allShipsSunk()) {
-            gameOver = true;
-        } else if (result.getOutcome() == ShotOutcome.MISS) {
-            playerTurn = true;
-        }
+        handleShotResult(playerBoard, result);
         return result;
     }
 
@@ -77,17 +65,35 @@ class GameController {
             return ShotResult.already(row, col);
         }
         ShotResult result = target.fireAt(row, col);
-        if (result.getOutcome() != ShotOutcome.ALREADY) {
-            if (result.getOutcome() == ShotOutcome.SUNK) {
-                target.markSurroundingCellsAsMiss(result.getShip());
-            }
-            if (target.allShipsSunk()) {
-                gameOver = true;
-            } else if (result.getOutcome() == ShotOutcome.MISS) {
-                playerOneTurn = !playerOneTurn;
+        handleShotResult(target, result);
+        return result;
+    }
+
+    private void handleShotResult(Board target, ShotResult result) {
+        if (result.getOutcome() == ShotOutcome.ALREADY) {
+            return;
+        }
+        if (result.getOutcome() == ShotOutcome.SUNK) {
+            Ship sunkShip = result.getShip();
+            if (sunkShip != null) {
+                target.markSurroundingCellsAsMiss(sunkShip);
             }
         }
-        return result;
+        if (target.allShipsSunk()) {
+            gameOver = true;
+            return;
+        }
+        if (result.getOutcome() == ShotOutcome.MISS) {
+            switchCurrentPlayer();
+        }
+    }
+
+    private void switchCurrentPlayer() {
+        if (mode == GameMode.LOCAL_PVP) {
+            playerOneTurn = !playerOneTurn;
+        } else {
+            playerTurn = !playerTurn;
+        }
     }
 
     boolean isPlayerTurn() {

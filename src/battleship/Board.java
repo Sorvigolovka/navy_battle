@@ -51,6 +51,7 @@ class Board {
             for (int c = 0; c < SIZE; c++) {
                 cells[r][c].setShip(null);
                 cells[r][c].setShot(false);
+                cells[r][c].setMiss(false);
             }
         }
     }
@@ -77,6 +78,7 @@ class Board {
             ship.registerHit();
             return ShotResult.hit(row, col, ship, ship.isSunk());
         }
+        cell.setMiss(true);
         return ShotResult.miss(row, col);
     }
 
@@ -168,6 +170,7 @@ class Board {
                     Cell neighbor = cells[nr][nc];
                     if (!neighbor.hasShip() && !neighbor.isShot()) {
                         neighbor.markShot();
+                        neighbor.setMiss(true);
                     }
                 }
             }

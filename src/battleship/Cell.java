@@ -5,6 +5,7 @@ class Cell {
     private final int col;
     private Ship ship;
     private boolean shot;
+    private boolean miss;
 
     Cell(int row, int col) {
         this.row = row;
@@ -41,5 +42,13 @@ class Cell {
 
     void setShot(boolean shot) {
         this.shot = shot;
+    }
+
+    boolean isMiss() {
+        return miss;
+    }
+
+    void setMiss(boolean miss) {
+        this.miss = miss;
     }
 }
