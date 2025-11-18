@@ -1,22 +1,17 @@
 package battleship;
 
 import java.awt.Point;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
 
 class GameController {
     private final Board playerBoard;
     private final Board aiBoard;
-    private final Random random = new Random();
-    private final List<Point> aiTargets = new ArrayList<>();
+    private final ComputerAI computerAI = new ComputerAI();
     private boolean playerTurn = true;
     private boolean gameOver = false;
 
     GameController(Board playerBoard, Board aiBoard) {
         this.playerBoard = playerBoard;
         this.aiBoard = aiBoard;
-        refillAiTargets();
     }
 
     void resetGame() {
@@ -24,7 +19,7 @@ class GameController {
         aiBoard.reset();
         playerTurn = true;
         gameOver = false;
-        refillAiTargets();
+        computerAI.reset();
     }
 
     ShotResult playerFire(int row, int col) {
@@ -46,11 +41,9 @@ class GameController {
         if (gameOver) {
             return null;
         }
-        if (aiTargets.isEmpty()) {
-            refillAiTargets();
-        }
-        Point target = aiTargets.remove(random.nextInt(aiTargets.size()));
+        Point target = computerAI.chooseTarget(playerBoard);
         ShotResult result = playerBoard.fireAt(target.x, target.y);
+        computerAI.handleShotResult(target, result, playerBoard);
         if (playerBoard.allShipsSunk()) {
             gameOver = true;
         } else {
@@ -73,10 +66,5 @@ class GameController {
 
     Board getAiBoard() {
         return aiBoard;
-    }
-
-    private void refillAiTargets() {
-        aiTargets.clear();
-        aiTargets.addAll(playerBoard.availableTargets());
     }
 }
