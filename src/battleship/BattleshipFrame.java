@@ -1,6 +1,7 @@
 package battleship;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -10,51 +11,131 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.Timer;
 
 class BattleshipFrame extends JFrame {
+    private enum Screen {
+        MENU, GAME
+    }
+
     private static final Color PLAYER_SHIP = new Color(0x90a4ae);
     private static final Color FOG = new Color(0xeceff1);
     private static final Color MISS = new Color(0x90caf9);
     private static final Color HIT = new Color(0xef9a9a);
     private static final Color SUNK = new Color(0xe64a19);
 
-    private final GameController controller;
-    private final JButton[][] playerButtons = new JButton[Board.SIZE][Board.SIZE];
-    private final JButton[][] aiButtons = new JButton[Board.SIZE][Board.SIZE];
-    private final JLabel statusLabel = new JLabel("Ваш хід", SwingConstants.CENTER);
-    private final JButton newGameButton = new JButton("Нова гра");
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel mainPanel = new JPanel(cardLayout);
+
+    private JPanel menuPanel;
+    private JPanel gamePanel;
+
+    private GameController controller;
+    private JButton[][] playerButtons;
+    private JButton[][] aiButtons;
+    private JLabel statusLabel;
+    private JButton newGameButton;
+    private JButton backToMenuButton;
+
+    private Language currentLanguage = Language.UKRAINIAN;
 
     BattleshipFrame() {
-        super("Морський бій (Java)");
+        super(Localization.t("window.title", Language.UKRAINIAN));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout(10, 10));
         setResizable(false);
 
-        Board playerBoard = new Board();
-        Board aiBoard = new Board();
-        controller = new GameController(playerBoard, aiBoard);
+        menuPanel = createMenuPanel();
+        mainPanel.add(menuPanel, Screen.MENU.name());
+        add(mainPanel, BorderLayout.CENTER);
+
+        showScreen(Screen.MENU);
+        pack();
+        setLocationRelativeTo(null);
+        setVisible(true);
+    }
+
+    private JPanel createMenuPanel() {
+        JPanel panel = new JPanel(new GridLayout(0, 1, 8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+
+        JButton newVsAi = new JButton();
+        newVsAi.addActionListener(e -> startNewVsAiGame());
+
+        JButton localTwoPlayers = new JButton();
+        localTwoPlayers.addActionListener(e -> startLocalTwoPlayersGame());
+
+        JButton loadGame = new JButton();
+        loadGame.addActionListener(e -> loadGameFromMenu());
+
+        JButton hostOnline = new JButton();
+        hostOnline.addActionListener(e -> createOnlineGame());
+
+        JButton joinOnline = new JButton();
+        joinOnline.addActionListener(e -> joinOnlineGame());
+
+        JButton changeLanguage = new JButton();
+        changeLanguage.addActionListener(e -> showLanguageDialog());
+
+        JButton resetStats = new JButton();
+        resetStats.addActionListener(e -> resetStatisticsFromMenu());
+
+        JButton exitButton = new JButton();
+        exitButton.addActionListener(e -> exitGame());
+
+        panel.add(newVsAi);
+        panel.add(localTwoPlayers);
+        panel.add(loadGame);
+        panel.add(hostOnline);
+        panel.add(joinOnline);
+        panel.add(changeLanguage);
+        panel.add(resetStats);
+        panel.add(exitButton);
+
+        panel.putClientProperty("buttons", new JButton[] {
+                newVsAi, localTwoPlayers, loadGame, hostOnline, joinOnline, changeLanguage, resetStats, exitButton
+        });
+
+        applyMenuTexts(panel);
+        return panel;
+    }
+
+    private JPanel createGamePanel() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+
+        statusLabel = new JLabel(Localization.t("status.yourTurn", currentLanguage), SwingConstants.CENTER);
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 16f));
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        newGameButton = new JButton(Localization.t("game.newGame", currentLanguage));
+        newGameButton.addActionListener(e -> startNewVsAiGame());
+
+        backToMenuButton = new JButton(Localization.t("game.backToMenu", currentLanguage));
+        backToMenuButton.addActionListener(e -> returnToMenu());
+
+        JPanel topPanel = new JPanel(new BorderLayout(8, 8));
+        topPanel.add(statusLabel, BorderLayout.CENTER);
+        topPanel.add(newGameButton, BorderLayout.EAST);
+        topPanel.add(backToMenuButton, BorderLayout.WEST);
+
+        controller = new GameController(new Board(), new Board());
+        playerButtons = new JButton[Board.SIZE][Board.SIZE];
+        aiButtons = new JButton[Board.SIZE][Board.SIZE];
 
         JPanel boards = new JPanel(new GridLayout(1, 2, 10, 10));
         boards.add(createBoardPanel(playerButtons, false));
         boards.add(createBoardPanel(aiButtons, true));
 
-        JPanel topPanel = new JPanel(new BorderLayout());
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 16f));
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        topPanel.add(statusLabel, BorderLayout.CENTER);
-        newGameButton.addActionListener(e -> resetGame());
-        topPanel.add(newGameButton, BorderLayout.EAST);
-
-        add(topPanel, BorderLayout.NORTH);
-        add(boards, BorderLayout.CENTER);
+        panel.add(topPanel, BorderLayout.NORTH);
+        panel.add(boards, BorderLayout.CENTER);
+        panel.putClientProperty("boardsPanel", boards);
+        panel.putClientProperty("topPanel", topPanel);
 
         refreshBoards();
-        pack();
-        setLocationRelativeTo(null);
-        setVisible(true);
+        return panel;
     }
 
     private JPanel createBoardPanel(JButton[][] buttons, boolean enemyBoard) {
@@ -83,35 +164,109 @@ class BattleshipFrame extends JFrame {
         return panel;
     }
 
+    private void showScreen(Screen screen) {
+        cardLayout.show(mainPanel, screen.name());
+        pack();
+        setLocationRelativeTo(null);
+    }
+
+    private void startNewVsAiGame() {
+        if (gamePanel == null) {
+            gamePanel = createGamePanel();
+            mainPanel.add(gamePanel, Screen.GAME.name());
+        }
+        controller = new GameController(new Board(), new Board());
+        statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+        refreshBoards();
+        enableEnemyBoard();
+        showScreen(Screen.GAME);
+    }
+
+    private void startLocalTwoPlayersGame() {
+        JOptionPane.showMessageDialog(this,
+                Localization.t("dialog.localNotImplemented", currentLanguage));
+    }
+
+    private void loadGameFromMenu() {
+        JOptionPane.showMessageDialog(this,
+                Localization.t("dialog.loadPlaceholder", currentLanguage));
+    }
+
+    private void createOnlineGame() {
+        JOptionPane.showMessageDialog(this,
+                Localization.t("dialog.onlinePlaceholder", currentLanguage));
+    }
+
+    private void joinOnlineGame() {
+        JOptionPane.showMessageDialog(this,
+                Localization.t("dialog.onlinePlaceholder", currentLanguage));
+    }
+
+    private void showLanguageDialog() {
+        Object[] options = {Language.UKRAINIAN.getDisplayName(), Language.ENGLISH.getDisplayName()};
+        int choice = JOptionPane.showOptionDialog(this,
+                Localization.t("dialog.languageTitle", currentLanguage),
+                Localization.t("dialog.languageTitle", currentLanguage),
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                options,
+                options[0]);
+        if (choice == 0) {
+            currentLanguage = Language.UKRAINIAN;
+        } else if (choice == 1) {
+            currentLanguage = Language.ENGLISH;
+        } else {
+            return;
+        }
+        applyLocalization();
+    }
+
+    private void resetStatisticsFromMenu() {
+        int confirm = JOptionPane.showConfirmDialog(this,
+                Localization.t("dialog.resetStatsConfirm", currentLanguage),
+                Localization.t("menu.resetStats", currentLanguage),
+                JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            JOptionPane.showMessageDialog(this,
+                    Localization.t("dialog.resetStatsNotImplemented", currentLanguage));
+        }
+    }
+
+    private void exitGame() {
+        dispose();
+        System.exit(0);
+    }
+
     private void handlePlayerShot(int row, int col) {
         if (!controller.isPlayerTurn()) {
-            statusLabel.setText("Зачекайте на свій хід");
+            statusLabel.setText(Localization.t("status.wait", currentLanguage));
             return;
         }
         if (controller.isGameOver()) {
-            statusLabel.setText("Гра завершена — натисніть 'Нова гра'");
+            statusLabel.setText(Localization.t("status.gameOver", currentLanguage));
             return;
         }
         ShotResult result = controller.playerFire(row, col);
         if (result.getOutcome() == ShotOutcome.ALREADY) {
-            statusLabel.setText("Ви вже стріляли сюди");
+            statusLabel.setText(Localization.t("status.already", currentLanguage));
             return;
         }
         paintEnemyShot(result);
         if (controller.isGameOver()) {
-            statusLabel.setText("Ви перемогли! Натисніть 'Нова гра'");
+            statusLabel.setText(Localization.t("status.win", currentLanguage));
             disableEnemyBoard();
             return;
         }
-        statusLabel.setText("Хід суперника...");
+        statusLabel.setText(Localization.t("status.opponentTurn", currentLanguage));
         disableEnemyBoard();
         Timer timer = new Timer(600, e -> {
             ShotResult ai = controller.aiFire();
             paintPlayerShot(ai);
             if (controller.isGameOver()) {
-                statusLabel.setText("Поразка. Спробуйте ще раз");
+                statusLabel.setText(Localization.t("status.lose", currentLanguage));
             } else {
-                statusLabel.setText("Ваш хід");
+                statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
                 enableEnemyBoard();
             }
         });
@@ -195,13 +350,6 @@ class BattleshipFrame extends JFrame {
         }
     }
 
-    private void resetGame() {
-        controller.resetGame();
-        refreshBoards();
-        enableEnemyBoard();
-        statusLabel.setText("Ваш хід");
-    }
-
     private void disableEnemyBoard() {
         Arrays.stream(aiButtons).flatMap(Arrays::stream).forEach(btn -> btn.setEnabled(false));
     }
@@ -214,5 +362,36 @@ class BattleshipFrame extends JFrame {
                 }
             }
         }
+    }
+
+    private void returnToMenu() {
+        showScreen(Screen.MENU);
+    }
+
+    private void applyLocalization() {
+        setTitle(Localization.t("window.title", currentLanguage));
+        applyMenuTexts(menuPanel);
+        if (gamePanel != null) {
+            newGameButton.setText(Localization.t("game.newGame", currentLanguage));
+            backToMenuButton.setText(Localization.t("game.backToMenu", currentLanguage));
+            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+        }
+        revalidate();
+        repaint();
+    }
+
+    private void applyMenuTexts(JPanel menuPanel) {
+        JButton[] buttons = (JButton[]) menuPanel.getClientProperty("buttons");
+        if (buttons == null || buttons.length < 8) {
+            return;
+        }
+        buttons[0].setText(Localization.t("menu.newVsAi", currentLanguage));
+        buttons[1].setText(Localization.t("menu.localTwoPlayers", currentLanguage));
+        buttons[2].setText(Localization.t("menu.load", currentLanguage));
+        buttons[3].setText(Localization.t("menu.host", currentLanguage));
+        buttons[4].setText(Localization.t("menu.join", currentLanguage));
+        buttons[5].setText(Localization.t("menu.language", currentLanguage));
+        buttons[6].setText(Localization.t("menu.resetStats", currentLanguage));
+        buttons[7].setText(Localization.t("menu.exit", currentLanguage));
     }
 }
