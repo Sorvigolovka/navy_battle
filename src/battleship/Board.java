@@ -83,6 +83,9 @@ class Board {
     }
 
     boolean allShipsSunk() {
+        if (ships.isEmpty()) {
+            return false;
+        }
         return ships.stream().allMatch(Ship::isSunk);
     }
 

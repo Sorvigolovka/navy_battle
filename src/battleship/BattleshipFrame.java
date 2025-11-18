@@ -540,6 +540,7 @@ class BattleshipFrame extends JFrame {
                 target.setBackground(SUNK);
                 target.setText("✕");
                 highlightSunkShip(result.getShip(), false);
+                refreshBoards();
                 break;
             default:
                 break;
@@ -564,6 +565,7 @@ class BattleshipFrame extends JFrame {
                 target.setBackground(SUNK);
                 target.setText("✕");
                 highlightSunkShip(result.getShip(), true);
+                refreshBoards();
                 break;
             default:
                 break;
