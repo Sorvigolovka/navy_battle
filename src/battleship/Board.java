@@ -15,22 +15,44 @@ class Board {
     private final Random random = new Random();
 
     Board() {
+        this(true);
+    }
+
+    Board(boolean autoPlace) {
         for (int r = 0; r < SIZE; r++) {
             for (int c = 0; c < SIZE; c++) {
                 cells[r][c] = new Cell(r, c);
             }
         }
-        placeFleet();
+        if (autoPlace) {
+            placeFleet();
+        }
     }
 
     void reset() {
+        reset(true);
+    }
+
+    void reset(boolean autoPlace) {
         ships.clear();
         for (int r = 0; r < SIZE; r++) {
             for (int c = 0; c < SIZE; c++) {
                 cells[r][c] = new Cell(r, c);
             }
         }
-        placeFleet();
+        if (autoPlace) {
+            placeFleet();
+        }
+    }
+
+    void clearFleet() {
+        ships.clear();
+        for (int r = 0; r < SIZE; r++) {
+            for (int c = 0; c < SIZE; c++) {
+                cells[r][c].setShip(null);
+                cells[r][c].setShot(false);
+            }
+        }
     }
 
     Cell[][] getCells() {
@@ -69,7 +91,7 @@ class Board {
                 boolean horizontal = random.nextBoolean();
                 int row = random.nextInt(SIZE);
                 int col = random.nextInt(SIZE);
-                if (canPlace(length, row, col, horizontal)) {
+                if (canPlaceShip(length, row, col, horizontal)) {
                     placeShip(length, row, col, horizontal);
                     placed = true;
                 }
@@ -77,7 +99,7 @@ class Board {
         }
     }
 
-    private boolean canPlace(int length, int row, int col, boolean horizontal) {
+    boolean canPlaceShip(int length, int row, int col, boolean horizontal) {
         int endRow = horizontal ? row : row + length - 1;
         int endCol = horizontal ? col + length - 1 : col;
         if (endRow >= SIZE || endCol >= SIZE) {
@@ -96,7 +118,10 @@ class Board {
         return true;
     }
 
-    private void placeShip(int length, int row, int col, boolean horizontal) {
+    boolean placeShip(int length, int row, int col, boolean horizontal) {
+        if (!canPlaceShip(length, row, col, horizontal)) {
+            return false;
+        }
         Ship ship = new Ship();
         for (int i = 0; i < length; i++) {
             int r = horizontal ? row : row + i;
@@ -106,6 +131,7 @@ class Board {
             ship.addCell(cell);
         }
         ships.add(ship);
+        return true;
     }
 
     List<Point> availableTargets() {
@@ -119,5 +145,9 @@ class Board {
         }
         Collections.shuffle(targets, random);
         return targets;
+    }
+
+    int[] getFleetTemplate() {
+        return FLEET.clone();
     }
 }

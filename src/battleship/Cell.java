@@ -38,4 +38,8 @@ class Cell {
     void markShot() {
         this.shot = true;
     }
+
+    void setShot(boolean shot) {
+        this.shot = shot;
+    }
 }
