@@ -49,13 +49,13 @@ class GameController {
         if (playerTurn || gameOver) {
             return null;
         }
-        if (gameOver) {
-            return null;
+        ShotResult result = null;
+        while (!playerTurn && !gameOver) {
+            Point target = computerAI.chooseTarget(playerBoard);
+            result = playerBoard.fireAt(target.x, target.y);
+            computerAI.handleShotResult(target, result, playerBoard);
+            handleShotResult(playerBoard, result);
         }
-        Point target = computerAI.chooseTarget(playerBoard);
-        ShotResult result = playerBoard.fireAt(target.x, target.y);
-        computerAI.handleShotResult(target, result, playerBoard);
-        handleShotResult(playerBoard, result);
         return result;
     }
 
