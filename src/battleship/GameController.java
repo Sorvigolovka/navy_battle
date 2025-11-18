@@ -38,9 +38,12 @@ class GameController {
         }
         ShotResult result = aiBoard.fireAt(row, col);
         if (result.getOutcome() != ShotOutcome.ALREADY) {
+            if (result.getOutcome() == ShotOutcome.SUNK) {
+                aiBoard.markSurroundingCellsAsMiss(result.getShip());
+            }
             if (aiBoard.allShipsSunk()) {
                 gameOver = true;
-            } else {
+            } else if (result.getOutcome() == ShotOutcome.MISS) {
                 playerTurn = false;
             }
         }
@@ -57,9 +60,12 @@ class GameController {
         Point target = computerAI.chooseTarget(playerBoard);
         ShotResult result = playerBoard.fireAt(target.x, target.y);
         computerAI.handleShotResult(target, result, playerBoard);
+        if (result.getOutcome() == ShotOutcome.SUNK) {
+            playerBoard.markSurroundingCellsAsMiss(result.getShip());
+        }
         if (playerBoard.allShipsSunk()) {
             gameOver = true;
-        } else {
+        } else if (result.getOutcome() == ShotOutcome.MISS) {
             playerTurn = true;
         }
         return result;
@@ -72,6 +78,9 @@ class GameController {
         }
         ShotResult result = target.fireAt(row, col);
         if (result.getOutcome() != ShotOutcome.ALREADY) {
+            if (result.getOutcome() == ShotOutcome.SUNK) {
+                target.markSurroundingCellsAsMiss(result.getShip());
+            }
             if (target.allShipsSunk()) {
                 gameOver = true;
             } else if (result.getOutcome() == ShotOutcome.MISS) {

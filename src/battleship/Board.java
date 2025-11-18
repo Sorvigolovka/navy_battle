@@ -150,4 +150,27 @@ class Board {
     int[] getFleetTemplate() {
         return FLEET.clone();
     }
+
+    void markSurroundingCellsAsMiss(Ship ship) {
+        for (Cell shipCell : ship.getCells()) {
+            int baseRow = shipCell.getRow();
+            int baseCol = shipCell.getCol();
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) {
+                        continue;
+                    }
+                    int nr = baseRow + dr;
+                    int nc = baseCol + dc;
+                    if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) {
+                        continue;
+                    }
+                    Cell neighbor = cells[nr][nc];
+                    if (!neighbor.hasShip() && !neighbor.isShot()) {
+                        neighbor.markShot();
+                    }
+                }
+            }
+        }
+    }
 }
