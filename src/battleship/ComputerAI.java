@@ -15,6 +15,7 @@ import java.util.Set;
  * Hunting AI that keeps state between turns and prioritizes finishing ships it has found.
  */
 class ComputerAI implements Serializable {
+    private static final long serialVersionUID = 1L;
     private final Random random = new Random();
     private final Set<String> tried = new HashSet<>();
     private final Deque<Point> huntQueue = new ArrayDeque<>();

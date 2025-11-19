@@ -1,6 +1,9 @@
 package battleship;
 
-class Cell {
+import java.io.Serializable;
+
+class Cell implements Serializable {
+    private static final long serialVersionUID = 1L;
     private final int row;
     private final int col;
     private Ship ship;

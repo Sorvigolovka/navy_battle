@@ -1,15 +1,17 @@
 package battleship;
 
 import java.awt.Point;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
-class Board {
+class Board implements Serializable {
     static final int SIZE = 10;
     private static final int[] FLEET = {4, 3, 3, 2, 2, 2, 1, 1, 1, 1};
 
+    private static final long serialVersionUID = 1L;
     private final Cell[][] cells = new Cell[SIZE][SIZE];
     private final List<Ship> ships = new ArrayList<>();
     private final Random random = new Random();

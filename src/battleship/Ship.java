@@ -1,9 +1,11 @@
 package battleship;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-class Ship {
+class Ship implements Serializable {
+    private static final long serialVersionUID = 1L;
     private final Board owner;
     private final List<Cell> cells = new ArrayList<>();
     private int hits;

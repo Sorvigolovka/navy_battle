@@ -9,6 +9,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 
 class StatisticsManager implements Serializable {
+    private static final long serialVersionUID = 1L;
     private static final String FILE = "stats.sav";
     private int vsAiWins;
     private int vsAiLosses;
@@ -69,9 +70,14 @@ class StatisticsManager implements Serializable {
         save();
     }
 
-    String format(Language language) {
-        return Localization.t("stats.vsAi", language) + ": " + vsAiWins + " / " + vsAiLosses + "\n"
-                + Localization.t("stats.local", language) + ": " + localWins + " / " + localLosses + "\n"
-                + Localization.t("stats.online", language) + ": " + onlineWins + " / " + onlineLosses;
+    String formatInline(Language language) {
+        return label(language, "Проти ПК", "VS AI") + ": " + vsAiWins + "/" + vsAiLosses
+                + "  |  " + label(language, "Локально (P1/P2)", "Local (P1/P2)") + ": " + localWins + "/"
+                + localLosses + "  |  " + label(language, "Онлайн", "Online") + ": " + onlineWins + "/"
+                + onlineLosses;
+    }
+
+    private String label(Language language, String ua, String en) {
+        return language == Language.UKRAINIAN ? ua : en;
     }
 }

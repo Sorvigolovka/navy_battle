@@ -6,8 +6,10 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -38,6 +40,7 @@ class BattleshipFrame extends JFrame {
     private JPanel menuPanel;
     private JPanel gamePanel;
 
+    private final StatisticsManager statisticsManager = StatisticsManager.load();
     private GameController controller;
     private GameMode currentMode = GameMode.VS_AI;
     private boolean placementMode = false;
@@ -57,6 +60,8 @@ class BattleshipFrame extends JFrame {
     private JLabel statusLabel;
     private JButton newGameButton;
     private JButton backToMenuButton;
+    private JButton saveGameButton;
+    private JLabel statsLabel;
     private Timer turnDelayTimer;
 
     private Language currentLanguage = Language.UKRAINIAN;
@@ -135,12 +140,18 @@ class BattleshipFrame extends JFrame {
         backToMenuButton = new JButton(Localization.t("game.backToMenu", currentLanguage));
         backToMenuButton.addActionListener(e -> returnToMenu());
 
+        saveGameButton = new JButton(currentLanguage == Language.UKRAINIAN ? "Зберегти гру" : "Save game");
+        saveGameButton.addActionListener(e -> saveCurrentGame());
+
         JPanel topPanel = new JPanel(new BorderLayout(8, 8));
         topPanel.add(statusLabel, BorderLayout.CENTER);
-        topPanel.add(newGameButton, BorderLayout.EAST);
+        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 6, 0));
+        rightButtons.add(saveGameButton);
+        rightButtons.add(newGameButton);
+        topPanel.add(rightButtons, BorderLayout.EAST);
         topPanel.add(backToMenuButton, BorderLayout.WEST);
 
-        controller = new GameController(new Board(), new Board());
+        controller = new GameController(new Board(), new Board(), GameMode.VS_AI, statisticsManager);
         playerButtons = new JButton[Board.SIZE][Board.SIZE];
         aiButtons = new JButton[Board.SIZE][Board.SIZE];
 
@@ -152,11 +163,19 @@ class BattleshipFrame extends JFrame {
 
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(boards, BorderLayout.CENTER);
-        panel.add(placementControls, BorderLayout.SOUTH);
+        statsLabel = new JLabel();
+        statsLabel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        statsLabel.setFont(statsLabel.getFont().deriveFont(12f));
+        JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.add(placementControls, BorderLayout.CENTER);
+        bottomPanel.add(statsLabel, BorderLayout.SOUTH);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
         panel.putClientProperty("boardsPanel", boards);
         panel.putClientProperty("topPanel", topPanel);
 
         refreshBoards();
+        updateStatsLabel();
+        updateSaveButtonState();
         return panel;
     }
 
@@ -233,12 +252,13 @@ class BattleshipFrame extends JFrame {
             pendingPlayerTwoBoard = aiBoard;
             beginManualPlacement(new Board(false), GameMode.VS_AI, 1);
         } else {
-            controller = new GameController(new Board(), aiBoard, GameMode.VS_AI);
+            controller = new GameController(new Board(), aiBoard, GameMode.VS_AI, statisticsManager);
             placementMode = false;
             placementControls.setVisible(false);
             statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
             refreshBoards();
             enableEnemyBoard();
+            updateSaveButtonState();
             showScreen(Screen.GAME);
         }
     }
@@ -253,11 +273,80 @@ class BattleshipFrame extends JFrame {
         pendingPlayerOneBoard = null;
         pendingPlayerTwoBoard = null;
         promptPlacementForPlayer(1);
+        updateSaveButtonState();
     }
 
     private void loadGameFromMenu() {
-        JOptionPane.showMessageDialog(this,
-                Localization.t("dialog.loadPlaceholder", currentLanguage));
+        List<String> saves = SaveManager.listSaves();
+        if (saves.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Немає збережених ігор", "No saves available"));
+            return;
+        }
+        Object selection = JOptionPane.showInputDialog(this,
+                localized("Оберіть збереження для завантаження", "Choose a save to load"),
+                Localization.t("window.title", currentLanguage),
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                saves.toArray(),
+                saves.get(0));
+        if (selection == null) {
+            return;
+        }
+        try {
+            GameState state = SaveManager.load(selection.toString());
+            if (state.getMode() != GameMode.VS_AI) {
+                JOptionPane.showMessageDialog(this,
+                        localized("Поки що підтримується лише завантаження ігор проти комп'ютера",
+                                "Only VS AI saves are supported right now"));
+                return;
+            }
+            applyLoadedGame(state);
+        } catch (IOException | ClassNotFoundException ex) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Не вдалося завантажити гру", "Unable to load the save") + "\n" + ex.getMessage(),
+                    Localization.t("window.title", currentLanguage),
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void applyLoadedGame(GameState state) {
+        cancelTurnDelay();
+        currentMode = state.getMode();
+        currentLanguage = state.getLanguage();
+        if (gamePanel == null) {
+            gamePanel = createGamePanel();
+            mainPanel.add(gamePanel, Screen.GAME.name());
+        }
+        controller = new GameController(state.getPlayerOneBoard(), state.getPlayerTwoBoard(), state.getMode(),
+                state.isPlayerTurn(), state.isPlayerOneTurn(), state.getComputerAi(), statisticsManager);
+        placementMode = false;
+        placementControls.setVisible(false);
+        applyLocalization();
+        refreshBoards();
+        updateSaveButtonState();
+        updateStatsLabel();
+        showScreen(Screen.GAME);
+        if (controller.isGameOver()) {
+            statusLabel.setText(controller.getPlayerBoard().allShipsSunk()
+                    ? Localization.t("status.lose", currentLanguage)
+                    : Localization.t("status.win", currentLanguage));
+            disableEnemyBoard();
+            return;
+        }
+        if (currentMode == GameMode.VS_AI) {
+            if (controller.isPlayerTurn()) {
+                statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+                enableEnemyBoard();
+            } else {
+                statusLabel.setText(Localization.t("status.wait", currentLanguage));
+                disableEnemyBoard();
+                scheduleTurnDelay(this::executeAiTurn);
+            }
+        } else {
+            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+            enableEnemyBoard();
+        }
     }
 
     private void createOnlineGame() {
@@ -268,6 +357,38 @@ class BattleshipFrame extends JFrame {
     private void joinOnlineGame() {
         JOptionPane.showMessageDialog(this,
                 Localization.t("dialog.onlinePlaceholder", currentLanguage));
+    }
+
+    private void saveCurrentGame() {
+        if (controller == null || currentMode != GameMode.VS_AI || placementMode || controller.isGameOver()) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Зберігати можна лише активну гру проти комп'ютера",
+                            "You can only save an active VS AI game"));
+            return;
+        }
+        String name = JOptionPane.showInputDialog(this,
+                localized("Введіть назву збереження", "Enter a save name"),
+                Localization.t("window.title", currentLanguage),
+                JOptionPane.PLAIN_MESSAGE);
+        if (name == null) {
+            return;
+        }
+        name = name.trim();
+        if (name.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Назва збереження не може бути порожньою", "Save name cannot be empty"));
+            return;
+        }
+        try {
+            SaveManager.save(controller.createState(currentLanguage), name);
+            JOptionPane.showMessageDialog(this,
+                    localized("Гру збережено", "Game saved"));
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Не вдалося зберегти гру", "Unable to save the game") + "\n" + ex.getMessage(),
+                    Localization.t("window.title", currentLanguage),
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private boolean askManualPlacement() {
@@ -300,6 +421,7 @@ class BattleshipFrame extends JFrame {
         enablePlacementBoard();
         refreshBoards();
         showScreen(Screen.GAME);
+        updateSaveButtonState();
     }
 
     private Map<Integer, Integer> buildFleetCount(Board board) {
@@ -367,8 +489,10 @@ class BattleshipFrame extends JFrame {
                 Localization.t("menu.resetStats", currentLanguage),
                 JOptionPane.YES_NO_OPTION);
         if (confirm == JOptionPane.YES_OPTION) {
+            statisticsManager.reset();
+            updateStatsLabel();
             JOptionPane.showMessageDialog(this,
-                    Localization.t("dialog.resetStatsNotImplemented", currentLanguage));
+                    Localization.t("dialog.resetStatsDone", currentLanguage));
         }
     }
 
@@ -378,15 +502,19 @@ class BattleshipFrame extends JFrame {
     }
 
     private void handlePlayerShot(int row, int col) {
-        if (placementMode) {
-            return;
-        }
-        if (!controller.isPlayerTurn()) {
-            statusLabel.setText(Localization.t("status.wait", currentLanguage));
+        if (placementMode || controller == null) {
             return;
         }
         if (controller.isGameOver()) {
             statusLabel.setText(Localization.t("status.gameOver", currentLanguage));
+            return;
+        }
+        if (currentMode != GameMode.LOCAL_PVP && !controller.isPlayerTurn()) {
+            statusLabel.setText(Localization.t("status.wait", currentLanguage));
+            return;
+        }
+        if (currentMode == GameMode.LOCAL_PVP && controller.isLocalSwitchPending()) {
+            statusLabel.setText(localized("Зміна гравця триває", "Player switch in progress"));
             return;
         }
         if (currentMode == GameMode.LOCAL_PVP) {
@@ -399,9 +527,16 @@ class BattleshipFrame extends JFrame {
             if (controller.isGameOver()) {
                 statusLabel.setText(Localization.t("status.win", currentLanguage));
                 disableEnemyBoard();
+                updateStatsLabel();
+                return;
+            }
+            if (result.getOutcome() == ShotOutcome.MISS) {
+                statusLabel.setText(localized("Передайте керування іншому гравцеві",
+                        "Pass control to the other player"));
+                disableEnemyBoard();
+                showLocalTurnSwitchDialog();
             } else {
                 statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
-                refreshBoards();
                 enableEnemyBoard();
             }
             return;
@@ -416,6 +551,8 @@ class BattleshipFrame extends JFrame {
             cancelTurnDelay();
             statusLabel.setText(Localization.t("status.win", currentLanguage));
             disableEnemyBoard();
+            updateStatsLabel();
+            updateSaveButtonState();
             return;
         }
         if (result.getOutcome() == ShotOutcome.MISS) {
@@ -426,6 +563,7 @@ class BattleshipFrame extends JFrame {
             statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
             enableEnemyBoard();
         }
+        updateSaveButtonState();
     }
 
     private void handlePlacementClick(int row, int col) {
@@ -485,10 +623,11 @@ class BattleshipFrame extends JFrame {
         placementControls.setVisible(false);
         if (currentMode == GameMode.VS_AI) {
             Board aiBoard = pendingPlayerTwoBoard != null ? pendingPlayerTwoBoard : new Board();
-            controller = new GameController(currentPlacementBoard, aiBoard, GameMode.VS_AI);
+            controller = new GameController(currentPlacementBoard, aiBoard, GameMode.VS_AI, statisticsManager);
             statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
             refreshBoards();
             enableEnemyBoard();
+            updateSaveButtonState();
             showScreen(Screen.GAME);
         } else {
             if (placementPlayerIndex == 1) {
@@ -506,12 +645,14 @@ class BattleshipFrame extends JFrame {
             return;
         }
         cancelTurnDelay();
-        controller = new GameController(pendingPlayerOneBoard, pendingPlayerTwoBoard, GameMode.LOCAL_PVP);
+        controller = new GameController(pendingPlayerOneBoard, pendingPlayerTwoBoard, GameMode.LOCAL_PVP,
+                statisticsManager);
         statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
         placementMode = false;
         placementControls.setVisible(false);
         refreshBoards();
         enableEnemyBoard();
+        updateSaveButtonState();
         showScreen(Screen.GAME);
     }
 
@@ -523,6 +664,16 @@ class BattleshipFrame extends JFrame {
         }
         disableEnemyBoard();
         updateRemainingShipsLabel();
+    }
+
+    private void showLocalTurnSwitchDialog() {
+        JOptionPane.showMessageDialog(this,
+                localized("Зміна гравця. Передайте керування іншому гравцеві і натисніть ОК",
+                        "Switch players. Pass control and press OK"));
+        controller.completeLocalSwitch();
+        refreshBoards();
+        statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+        enableEnemyBoard();
     }
 
     private void paintEnemyShot(ShotResult result) {
@@ -555,11 +706,14 @@ class BattleshipFrame extends JFrame {
         if (controller.isGameOver()) {
             statusLabel.setText(Localization.t("status.lose", currentLanguage));
             disableEnemyBoard();
+            updateStatsLabel();
+            updateSaveButtonState();
             return;
         }
         statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
         disableEnemyBoard();
         scheduleTurnDelay(this::enableEnemyBoard);
+        updateSaveButtonState();
     }
 
     private void paintPlayerShot(ShotResult result) {
@@ -598,6 +752,26 @@ class BattleshipFrame extends JFrame {
         }
     }
 
+    private Board getSelfBoardForDisplay() {
+        if (controller == null) {
+            return null;
+        }
+        if (currentMode == GameMode.LOCAL_PVP && !controller.isPlayerTurn()) {
+            return controller.getAiBoard();
+        }
+        return controller.getPlayerBoard();
+    }
+
+    private Board getTargetBoardForDisplay() {
+        if (controller == null) {
+            return null;
+        }
+        if (currentMode == GameMode.LOCAL_PVP && !controller.isPlayerTurn()) {
+            return controller.getPlayerBoard();
+        }
+        return controller.getAiBoard();
+    }
+
     private void refreshBoards() {
         if (placementMode && currentPlacementBoard != null) {
             Cell[][] cells = currentPlacementBoard.getCells();
@@ -621,10 +795,11 @@ class BattleshipFrame extends JFrame {
         if (controller == null) {
             return;
         }
-        Board self = currentMode == GameMode.LOCAL_PVP && !controller.isPlayerTurn()
-                ? controller.getAiBoard() : controller.getPlayerBoard();
-        Board target = currentMode == GameMode.LOCAL_PVP && !controller.isPlayerTurn()
-                ? controller.getPlayerBoard() : controller.getAiBoard();
+        Board self = getSelfBoardForDisplay();
+        Board target = getTargetBoardForDisplay();
+        if (self == null || target == null) {
+            return;
+        }
         Cell[][] selfCells = self.getCells();
         Cell[][] targetCells = target.getCells();
         for (int r = 0; r < Board.SIZE; r++) {
@@ -671,12 +846,20 @@ class BattleshipFrame extends JFrame {
     }
 
     private void enableEnemyBoard() {
-        if (placementMode || controller == null) {
+        if (placementMode || controller == null || controller.isGameOver()) {
             disableEnemyBoard();
             return;
         }
-        Board target = currentMode == GameMode.LOCAL_PVP && !controller.isPlayerTurn()
-                ? controller.getPlayerBoard() : controller.getAiBoard();
+        if ((currentMode == GameMode.VS_AI && !controller.isPlayerTurn())
+                || (currentMode == GameMode.LOCAL_PVP && controller.isLocalSwitchPending())) {
+            disableEnemyBoard();
+            return;
+        }
+        Board target = getTargetBoardForDisplay();
+        if (target == null) {
+            disableEnemyBoard();
+            return;
+        }
         for (int r = 0; r < Board.SIZE; r++) {
             for (int c = 0; c < Board.SIZE; c++) {
                 if (!target.getCells()[r][c].isShot()) {
@@ -688,9 +871,42 @@ class BattleshipFrame extends JFrame {
         }
     }
 
+    private void updateStatsLabel() {
+        if (statsLabel != null) {
+            statsLabel.setText(statisticsManager.formatInline(currentLanguage));
+        }
+    }
+
+    private void updateSaveButtonState() {
+        if (saveGameButton == null) {
+            return;
+        }
+        boolean enabled = controller != null && currentMode == GameMode.VS_AI && !placementMode
+                && !controller.isGameOver() && controller.isPlayerTurn();
+        saveGameButton.setEnabled(enabled);
+    }
+
+    private void updateStatusForCurrentTurn() {
+        if (statusLabel == null) {
+            return;
+        }
+        if (controller == null || controller.isGameOver()) {
+            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+            return;
+        }
+        if (currentMode == GameMode.VS_AI) {
+            statusLabel.setText(controller.isPlayerTurn()
+                    ? Localization.t("status.yourTurn", currentLanguage)
+                    : Localization.t("status.wait", currentLanguage));
+        } else {
+            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+        }
+    }
+
     private void returnToMenu() {
         cancelTurnDelay();
         showScreen(Screen.MENU);
+        updateSaveButtonState();
     }
 
     private void scheduleTurnDelay(Runnable action) {
@@ -717,7 +933,10 @@ class BattleshipFrame extends JFrame {
         if (gamePanel != null) {
             newGameButton.setText(Localization.t("game.newGame", currentLanguage));
             backToMenuButton.setText(Localization.t("game.backToMenu", currentLanguage));
-            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+            if (saveGameButton != null) {
+                saveGameButton.setText(currentLanguage == Language.UKRAINIAN ? "Зберегти гру" : "Save game");
+            }
+            updateStatusForCurrentTurn();
             if (horizontalButton != null && verticalButton != null) {
                 horizontalButton
                         .setText(currentLanguage == Language.UKRAINIAN ? "Горизонтально" : "Horizontal");
@@ -727,6 +946,8 @@ class BattleshipFrame extends JFrame {
                 placementDoneButton.setText(currentLanguage == Language.UKRAINIAN ? "Готово" : "Done");
             }
             updateRemainingShipsLabel();
+            updateStatsLabel();
+            updateSaveButtonState();
         }
         revalidate();
         repaint();
@@ -745,5 +966,9 @@ class BattleshipFrame extends JFrame {
         buttons[5].setText(Localization.t("menu.language", currentLanguage));
         buttons[6].setText(Localization.t("menu.resetStats", currentLanguage));
         buttons[7].setText(Localization.t("menu.exit", currentLanguage));
+    }
+
+    private String localized(String ua, String en) {
+        return currentLanguage == Language.UKRAINIAN ? ua : en;
     }
 }

@@ -9,6 +9,7 @@ import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 class SaveManager {
@@ -23,6 +24,7 @@ class SaveManager {
         if (names == null) {
             return List.of();
         }
+        Arrays.sort(names);
         List<String> result = new ArrayList<>();
         for (String n : names) {
             result.add(n);
@@ -39,7 +41,7 @@ class SaveManager {
     }
 
     static GameState load(String name) throws IOException, ClassNotFoundException {
-        File file = new File(SAVE_DIR, name);
+        File file = new File(SAVE_DIR, name.endsWith(".sav") ? name : name + ".sav");
         try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(file))) {
             return (GameState) in.readObject();
         }
