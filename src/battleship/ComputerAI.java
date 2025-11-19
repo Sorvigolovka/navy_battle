@@ -21,7 +21,7 @@ class ComputerAI implements Serializable {
     private final List<Point> currentHits = new ArrayList<>();
 
     Point chooseTarget(Board playerBoard) {
-        pruneQueue(playerBoard);
+        pruneQueue();
 
         Point oriented = selectAlongLine();
         if (oriented != null) {
@@ -35,7 +35,7 @@ class ComputerAI implements Serializable {
         return chooseRandom(playerBoard);
     }
 
-    void handleShotResult(Point target, ShotResult result, Board playerBoard) {
+    void handleShotResult(Point target, ShotResult result) {
         tried.add(key(target.x, target.y));
         if (result.getOutcome() == ShotOutcome.HIT) {
             registerHit(target);
@@ -45,7 +45,7 @@ class ComputerAI implements Serializable {
             currentHits.clear();
             huntQueue.clear();
         }
-        pruneQueue(playerBoard);
+        pruneQueue();
     }
 
     void reset() {
@@ -154,7 +154,7 @@ class ComputerAI implements Serializable {
         }
     }
 
-    private void pruneQueue(Board board) {
+    private void pruneQueue() {
         huntQueue.removeIf(p -> !isAvailable(p));
     }
 

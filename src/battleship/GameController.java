@@ -38,7 +38,7 @@ class GameController {
             return ShotResult.already(row, col);
         }
         ShotResult result = aiBoard.fireAt(row, col);
-        handleShotResult(aiBoard, result);
+        handleShotResult(aiBoard, row, col, result);
         return result;
     }
 
@@ -53,8 +53,8 @@ class GameController {
         while (!playerTurn && !gameOver) {
             Point target = computerAI.chooseTarget(playerBoard);
             result = playerBoard.fireAt(target.x, target.y);
-            computerAI.handleShotResult(target, result, playerBoard);
-            handleShotResult(playerBoard, result);
+            computerAI.handleShotResult(target, result);
+            handleShotResult(playerBoard, target.x, target.y, result);
         }
         return result;
     }
@@ -65,11 +65,11 @@ class GameController {
             return ShotResult.already(row, col);
         }
         ShotResult result = target.fireAt(row, col);
-        handleShotResult(target, result);
+        handleShotResult(target, row, col, result);
         return result;
     }
 
-    private void handleShotResult(Board target, ShotResult result) {
+    private void handleShotResult(Board target, int row, int col, ShotResult result) {
         if (result.getOutcome() == ShotOutcome.ALREADY) {
             return;
         }
