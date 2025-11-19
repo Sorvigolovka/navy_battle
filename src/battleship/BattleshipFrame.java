@@ -57,6 +57,7 @@ class BattleshipFrame extends JFrame {
     private JLabel statusLabel;
     private JButton newGameButton;
     private JButton backToMenuButton;
+    private Timer turnDelayTimer;
 
     private Language currentLanguage = Language.UKRAINIAN;
 
@@ -220,6 +221,7 @@ class BattleshipFrame extends JFrame {
     }
 
     private void startNewVsAiGame() {
+        cancelTurnDelay();
         currentMode = GameMode.VS_AI;
         if (gamePanel == null) {
             gamePanel = createGamePanel();
@@ -242,6 +244,7 @@ class BattleshipFrame extends JFrame {
     }
 
     private void startLocalTwoPlayersGame() {
+        cancelTurnDelay();
         currentMode = GameMode.LOCAL_PVP;
         if (gamePanel == null) {
             gamePanel = createGamePanel();
@@ -283,6 +286,7 @@ class BattleshipFrame extends JFrame {
     }
 
     private void beginManualPlacement(Board board, GameMode mode, int playerIndex) {
+        cancelTurnDelay();
         placementMode = true;
         currentPlacementBoard = board;
         placementPlayerIndex = playerIndex;
@@ -409,24 +413,19 @@ class BattleshipFrame extends JFrame {
         }
         paintEnemyShot(result);
         if (controller.isGameOver()) {
+            cancelTurnDelay();
             statusLabel.setText(Localization.t("status.win", currentLanguage));
             disableEnemyBoard();
             return;
         }
-        statusLabel.setText(Localization.t("status.opponentTurn", currentLanguage));
-        disableEnemyBoard();
-        Timer timer = new Timer(600, e -> {
-            ShotResult ai = controller.aiFire();
-            paintPlayerShot(ai);
-            if (controller.isGameOver()) {
-                statusLabel.setText(Localization.t("status.lose", currentLanguage));
-            } else {
-                statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
-                enableEnemyBoard();
-            }
-        });
-        timer.setRepeats(false);
-        timer.start();
+        if (result.getOutcome() == ShotOutcome.MISS) {
+            statusLabel.setText(Localization.t("status.wait", currentLanguage));
+            disableEnemyBoard();
+            scheduleTurnDelay(this::executeAiTurn);
+        } else {
+            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+            enableEnemyBoard();
+        }
     }
 
     private void handlePlacementClick(int row, int col) {
@@ -481,6 +480,7 @@ class BattleshipFrame extends JFrame {
                     currentLanguage == Language.UKRAINIAN ? "Розставте всі кораблі" : "Place all ships first");
             return;
         }
+        cancelTurnDelay();
         placementMode = false;
         placementControls.setVisible(false);
         if (currentMode == GameMode.VS_AI) {
@@ -505,6 +505,7 @@ class BattleshipFrame extends JFrame {
         if (pendingPlayerOneBoard == null || pendingPlayerTwoBoard == null) {
             return;
         }
+        cancelTurnDelay();
         controller = new GameController(pendingPlayerOneBoard, pendingPlayerTwoBoard, GameMode.LOCAL_PVP);
         statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
         placementMode = false;
@@ -545,6 +546,20 @@ class BattleshipFrame extends JFrame {
             default:
                 break;
         }
+    }
+
+    private void executeAiTurn() {
+        ShotResult ai = controller.aiFire();
+        paintPlayerShot(ai);
+        refreshBoards();
+        if (controller.isGameOver()) {
+            statusLabel.setText(Localization.t("status.lose", currentLanguage));
+            disableEnemyBoard();
+            return;
+        }
+        statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+        disableEnemyBoard();
+        scheduleTurnDelay(this::enableEnemyBoard);
     }
 
     private void paintPlayerShot(ShotResult result) {
@@ -674,7 +689,26 @@ class BattleshipFrame extends JFrame {
     }
 
     private void returnToMenu() {
+        cancelTurnDelay();
         showScreen(Screen.MENU);
+    }
+
+    private void scheduleTurnDelay(Runnable action) {
+        cancelTurnDelay();
+        turnDelayTimer = new Timer(1000, e -> {
+            ((Timer) e.getSource()).stop();
+            turnDelayTimer = null;
+            action.run();
+        });
+        turnDelayTimer.setRepeats(false);
+        turnDelayTimer.start();
+    }
+
+    private void cancelTurnDelay() {
+        if (turnDelayTimer != null) {
+            turnDelayTimer.stop();
+            turnDelayTimer = null;
+        }
     }
 
     private void applyLocalization() {
