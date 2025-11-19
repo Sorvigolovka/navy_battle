@@ -30,6 +30,10 @@ class Ship implements Serializable {
         hits++;
     }
 
+    void forceSunk() {
+        hits = cells.size();
+    }
+
     List<Cell> getCells() {
         return cells;
     }

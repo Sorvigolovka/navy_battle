@@ -9,6 +9,8 @@ class Cell implements Serializable {
     private Ship ship;
     private boolean shot;
     private boolean miss;
+    private boolean remoteHit;
+    private boolean remoteSunk;
 
     Cell(int row, int col) {
         this.row = row;
@@ -53,5 +55,27 @@ class Cell implements Serializable {
 
     void setMiss(boolean miss) {
         this.miss = miss;
+    }
+
+    boolean isRemoteHit() {
+        return remoteHit;
+    }
+
+    void setRemoteHit(boolean remoteHit) {
+        this.remoteHit = remoteHit;
+        if (!remoteHit) {
+            this.remoteSunk = false;
+        }
+    }
+
+    boolean isRemoteSunk() {
+        return remoteSunk;
+    }
+
+    void setRemoteSunk(boolean remoteSunk) {
+        this.remoteSunk = remoteSunk;
+        if (remoteSunk) {
+            this.remoteHit = true;
+        }
     }
 }

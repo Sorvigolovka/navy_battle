@@ -15,6 +15,7 @@ class Board implements Serializable {
     private final Cell[][] cells = new Cell[SIZE][SIZE];
     private final List<Ship> ships = new ArrayList<>();
     private final Random random = new Random();
+    private boolean virtualFleet;
 
     Board() {
         this(true);
@@ -54,6 +55,8 @@ class Board implements Serializable {
                 cells[r][c].setShip(null);
                 cells[r][c].setShot(false);
                 cells[r][c].setMiss(false);
+                cells[r][c].setRemoteHit(false);
+                cells[r][c].setRemoteSunk(false);
             }
         }
     }
@@ -85,10 +88,14 @@ class Board implements Serializable {
     }
 
     boolean allShipsSunk() {
-        if (ships.isEmpty()) {
+        if (virtualFleet || ships.isEmpty()) {
             return false;
         }
         return ships.stream().allMatch(Ship::isSunk);
+    }
+
+    void setVirtualFleet(boolean virtualFleet) {
+        this.virtualFleet = virtualFleet;
     }
 
     private void placeFleet() {
@@ -187,5 +194,45 @@ class Board implements Serializable {
 
     boolean containsShip(Ship ship) {
         return ship != null && ship.getOwner() == this && ships.contains(ship);
+    }
+
+    ShotResult applyRemoteResult(int row, int col, ShotOutcome outcome, List<Point> sunkCells) {
+        if (row < 0 || col < 0 || row >= SIZE || col >= SIZE) {
+            throw new IllegalArgumentException("Координати за межами поля");
+        }
+        Cell cell = cells[row][col];
+        if (cell.isShot()) {
+            return ShotResult.already(row, col);
+        }
+        cell.markShot();
+        if (outcome == ShotOutcome.MISS) {
+            cell.setMiss(true);
+            cell.setRemoteHit(false);
+            return ShotResult.miss(row, col);
+        }
+        cell.setMiss(false);
+        cell.setRemoteHit(true);
+        cell.setRemoteSunk(false);
+        if (outcome == ShotOutcome.SUNK && sunkCells != null && !sunkCells.isEmpty()) {
+            Ship ship = new Ship(this);
+            for (Point p : sunkCells) {
+                if (p.x < 0 || p.y < 0 || p.x >= SIZE || p.y >= SIZE) {
+                    continue;
+                }
+                Cell sunkCell = cells[p.x][p.y];
+                sunkCell.setShip(ship);
+                if (!ship.getCells().contains(sunkCell)) {
+                    ship.addCell(sunkCell);
+                }
+                sunkCell.markShot();
+                sunkCell.setMiss(false);
+                sunkCell.setRemoteHit(true);
+                sunkCell.setRemoteSunk(true);
+            }
+            ship.forceSunk();
+            ships.add(ship);
+            return ShotResult.hit(row, col, ship, true);
+        }
+        return ShotResult.hit(row, col, null, false);
     }
 }

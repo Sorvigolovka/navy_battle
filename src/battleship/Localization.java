@@ -17,6 +17,7 @@ class Localization {
         UA.put("menu.language", "Змінити мову");
         UA.put("menu.resetStats", "Скинути статистику");
         UA.put("menu.exit", "Вихід");
+        UA.put("menu.fullscreen", "Повноекранний режим");
         UA.put("game.newGame", "Нова гра");
         UA.put("game.backToMenu", "Повернутися до меню");
         UA.put("status.yourTurn", "Ваш хід");
@@ -43,6 +44,7 @@ class Localization {
         EN.put("menu.language", "Change language");
         EN.put("menu.resetStats", "Reset statistics");
         EN.put("menu.exit", "Exit");
+        EN.put("menu.fullscreen", "Fullscreen mode");
         EN.put("game.newGame", "New game");
         EN.put("game.backToMenu", "Back to menu");
         EN.put("status.yourTurn", "Your turn");

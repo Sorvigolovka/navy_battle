@@ -5,25 +5,37 @@ import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
+import java.awt.event.ActionEvent;
 import java.io.IOException;
+import java.net.Socket;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
+import javax.swing.AbstractAction;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
+import javax.swing.JDialog;
+import javax.swing.JTextField;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.KeyStroke;
 
-class BattleshipFrame extends JFrame {
+class BattleshipFrame extends JFrame implements OnlineMatch.Listener {
     private enum Screen {
         MENU, GAME
     }
@@ -63,6 +75,10 @@ class BattleshipFrame extends JFrame {
     private JButton saveGameButton;
     private JLabel statsLabel;
     private Timer turnDelayTimer;
+    private OnlineMatch onlineMatch;
+    private JCheckBox fullscreenToggle;
+    private boolean fullscreen;
+    private Rectangle windowedBounds;
 
     private Language currentLanguage = Language.UKRAINIAN;
 
@@ -76,9 +92,19 @@ class BattleshipFrame extends JFrame {
         mainPanel.add(menuPanel, Screen.MENU.name());
         add(mainPanel, BorderLayout.CENTER);
 
+        getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke("F11"), "toggleFullscreen");
+        getRootPane().getActionMap().put("toggleFullscreen", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                toggleFullscreen();
+            }
+        });
+
         showScreen(Screen.MENU);
         pack();
         setLocationRelativeTo(null);
+        windowedBounds = getBounds();
         setVisible(true);
     }
 
@@ -118,6 +144,10 @@ class BattleshipFrame extends JFrame {
         panel.add(changeLanguage);
         panel.add(resetStats);
         panel.add(exitButton);
+
+        fullscreenToggle = new JCheckBox();
+        fullscreenToggle.addActionListener(e -> setFullscreen(fullscreenToggle.isSelected()));
+        panel.add(fullscreenToggle);
 
         panel.putClientProperty("buttons", new JButton[] {
                 newVsAi, localTwoPlayers, loadGame, hostOnline, joinOnline, changeLanguage, resetStats, exitButton
@@ -235,12 +265,18 @@ class BattleshipFrame extends JFrame {
 
     private void showScreen(Screen screen) {
         cardLayout.show(mainPanel, screen.name());
-        pack();
-        setLocationRelativeTo(null);
+        if (!fullscreen) {
+            pack();
+            setLocationRelativeTo(null);
+        } else {
+            revalidate();
+            repaint();
+        }
     }
 
     private void startNewVsAiGame() {
         cancelTurnDelay();
+        shutdownOnlineMatch(true);
         currentMode = GameMode.VS_AI;
         if (gamePanel == null) {
             gamePanel = createGamePanel();
@@ -265,6 +301,7 @@ class BattleshipFrame extends JFrame {
 
     private void startLocalTwoPlayersGame() {
         cancelTurnDelay();
+        shutdownOnlineMatch(true);
         currentMode = GameMode.LOCAL_PVP;
         if (gamePanel == null) {
             gamePanel = createGamePanel();
@@ -277,6 +314,7 @@ class BattleshipFrame extends JFrame {
     }
 
     private void loadGameFromMenu() {
+        shutdownOnlineMatch(true);
         List<String> saves = SaveManager.listSaves();
         if (saves.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -350,13 +388,150 @@ class BattleshipFrame extends JFrame {
     }
 
     private void createOnlineGame() {
-        JOptionPane.showMessageDialog(this,
-                Localization.t("dialog.onlinePlaceholder", currentLanguage));
+        shutdownOnlineMatch(true);
+        String input = JOptionPane.showInputDialog(this,
+                localized("Вкажіть порт для сервера", "Enter port to host"), "5000");
+        if (input == null) {
+            return;
+        }
+        int port;
+        try {
+            port = Integer.parseInt(input.trim());
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Некоректний порт", "Invalid port"));
+            return;
+        }
+        JDialog waiting = showProgressDialog(localized("Очікування підключення суперника...", "Waiting for opponent..."));
+        new Thread(() -> {
+            try {
+                NetworkServer server = new NetworkServer(port);
+                Socket socket = server.waitForClient();
+                server.close();
+                SwingUtilities.invokeLater(() -> {
+                    waiting.dispose();
+                    beginOnlineSession(GameMode.ONLINE_HOST, socket);
+                });
+            } catch (IOException ex) {
+                SwingUtilities.invokeLater(() -> {
+                    waiting.dispose();
+                    JOptionPane.showMessageDialog(this,
+                            localized("Не вдалося створити онлайн-гру", "Unable to host the game") + "\n"
+                                    + ex.getMessage(),
+                            Localization.t("window.title", currentLanguage),
+                            JOptionPane.ERROR_MESSAGE);
+                });
+            }
+        }, "host-wait").start();
     }
 
     private void joinOnlineGame() {
-        JOptionPane.showMessageDialog(this,
-                Localization.t("dialog.onlinePlaceholder", currentLanguage));
+        shutdownOnlineMatch(true);
+        JTextField hostField = new JTextField("127.0.0.1");
+        JTextField portField = new JTextField("5000");
+        Object[] message = {localized("Адреса сервера:", "Server address:"), hostField,
+                localized("Порт:", "Port:"), portField};
+        int option = JOptionPane.showConfirmDialog(this, message,
+                Localization.t("menu.join", currentLanguage), JOptionPane.OK_CANCEL_OPTION);
+        if (option != JOptionPane.OK_OPTION) {
+            return;
+        }
+        int port;
+        try {
+            port = Integer.parseInt(portField.getText().trim());
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Некоректний порт", "Invalid port"));
+            return;
+        }
+        String host = hostField.getText().trim();
+        if (host.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Адреса не може бути порожньою", "Host cannot be empty"));
+            return;
+        }
+        JDialog connecting = showProgressDialog(localized("З'єднання...", "Connecting..."));
+        new Thread(() -> {
+            try {
+                NetworkClient client = new NetworkClient(host, port);
+                Socket socket = client.connect();
+                SwingUtilities.invokeLater(() -> {
+                    connecting.dispose();
+                    beginOnlineSession(GameMode.ONLINE_CLIENT, socket);
+                });
+            } catch (IOException ex) {
+                SwingUtilities.invokeLater(() -> {
+                    connecting.dispose();
+                    JOptionPane.showMessageDialog(this,
+                            localized("Не вдалося підключитися", "Unable to join the game") + "\n"
+                                    + ex.getMessage(),
+                            Localization.t("window.title", currentLanguage),
+                            JOptionPane.ERROR_MESSAGE);
+                });
+            }
+        }, "client-join").start();
+    }
+
+    private void beginOnlineSession(GameMode mode, Socket socket) {
+        cancelTurnDelay();
+        currentMode = mode;
+        if (gamePanel == null) {
+            gamePanel = createGamePanel();
+            mainPanel.add(gamePanel, Screen.GAME.name());
+        }
+        Board playerBoard = new Board(false);
+        Board opponentBoard = new Board(false);
+        opponentBoard.setVirtualFleet(true);
+        boolean playerStarts = mode == GameMode.ONLINE_HOST;
+        controller = new GameController(playerBoard, opponentBoard, mode, playerStarts, true, null, statisticsManager);
+        placementMode = false;
+        placementControls.setVisible(false);
+        refreshBoards();
+        showScreen(Screen.GAME);
+        updateStatsLabel();
+        updateSaveButtonState();
+        try {
+            onlineMatch = new OnlineMatch(controller, this, socket);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                    localized("Не вдалося розпочати онлайн-гру", "Unable to start the online match") + "\n"
+                            + ex.getMessage(),
+                    Localization.t("window.title", currentLanguage), JOptionPane.ERROR_MESSAGE);
+            returnToMenu();
+            return;
+        }
+        statusLabel.setText(localized("Розмістіть кораблі", "Place your ships"));
+        promptOnlinePlacement();
+    }
+
+    private void promptOnlinePlacement() {
+        if (controller == null) {
+            return;
+        }
+        Board playerBoard = controller.getPlayerBoard();
+        boolean manual = askManualPlacement();
+        if (manual) {
+            beginManualPlacement(playerBoard, currentMode, 1);
+        } else {
+            playerBoard.reset(true);
+            placementMode = false;
+            placementControls.setVisible(false);
+            refreshBoards();
+            statusLabel.setText(localized("Очікуємо готовність суперника", "Waiting for opponent readiness"));
+            if (onlineMatch != null) {
+                onlineMatch.markLocalReady();
+            }
+            disableEnemyBoard();
+        }
+    }
+
+    private JDialog showProgressDialog(String message) {
+        JDialog dialog = new JDialog(this, Localization.t("window.title", currentLanguage), false);
+        dialog.getContentPane().add(new JLabel(message, SwingConstants.CENTER));
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+        return dialog;
     }
 
     private void saveCurrentGame() {
@@ -497,6 +672,7 @@ class BattleshipFrame extends JFrame {
     }
 
     private void exitGame() {
+        shutdownOnlineMatch(true);
         dispose();
         System.exit(0);
     }
@@ -509,12 +685,16 @@ class BattleshipFrame extends JFrame {
             statusLabel.setText(Localization.t("status.gameOver", currentLanguage));
             return;
         }
-        if (currentMode != GameMode.LOCAL_PVP && !controller.isPlayerTurn()) {
+        if (!isOnlineMode() && currentMode != GameMode.LOCAL_PVP && !controller.isPlayerTurn()) {
             statusLabel.setText(Localization.t("status.wait", currentLanguage));
             return;
         }
         if (currentMode == GameMode.LOCAL_PVP && controller.isLocalSwitchPending()) {
             statusLabel.setText(localized("Зміна гравця триває", "Player switch in progress"));
+            return;
+        }
+        if (isOnlineMode()) {
+            handleOnlineShot(row, col);
             return;
         }
         if (currentMode == GameMode.LOCAL_PVP) {
@@ -564,6 +744,49 @@ class BattleshipFrame extends JFrame {
             enableEnemyBoard();
         }
         updateSaveButtonState();
+    }
+
+    private void handleOnlineShot(int row, int col) {
+        if (onlineMatch == null || controller == null) {
+            return;
+        }
+        if (!onlineMatch.isReadyToPlay()) {
+            statusLabel.setText(localized("Очікуємо готовність суперника", "Waiting for opponent readiness"));
+            return;
+        }
+        if (!controller.isPlayerTurn()) {
+            statusLabel.setText(Localization.t("status.wait", currentLanguage));
+            return;
+        }
+        Cell cell = controller.getAiBoard().getCells()[row][col];
+        if (cell.isShot()) {
+            statusLabel.setText(Localization.t("status.already", currentLanguage));
+            return;
+        }
+        disableEnemyBoard();
+        statusLabel.setText(localized("Відправляємо постріл...", "Sending shot..."));
+        onlineMatch.fireShot(row, col);
+    }
+
+    private void updateOnlineTurnState() {
+        if (!isOnlineMode() || controller == null || statusLabel == null) {
+            return;
+        }
+        if (controller.isGameOver()) {
+            return;
+        }
+        if (onlineMatch == null || !onlineMatch.isReadyToPlay()) {
+            statusLabel.setText(localized("Очікуємо готовність суперника", "Waiting for opponent readiness"));
+            disableEnemyBoard();
+            return;
+        }
+        if (controller.isPlayerTurn()) {
+            statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
+            enableEnemyBoard();
+        } else {
+            statusLabel.setText(Localization.t("status.wait", currentLanguage));
+            disableEnemyBoard();
+        }
     }
 
     private void handlePlacementClick(int row, int col) {
@@ -629,7 +852,7 @@ class BattleshipFrame extends JFrame {
             enableEnemyBoard();
             updateSaveButtonState();
             showScreen(Screen.GAME);
-        } else {
+        } else if (currentMode == GameMode.LOCAL_PVP) {
             if (placementPlayerIndex == 1) {
                 pendingPlayerOneBoard = currentPlacementBoard;
                 promptPlacementForPlayer(2);
@@ -637,6 +860,15 @@ class BattleshipFrame extends JFrame {
                 pendingPlayerTwoBoard = currentPlacementBoard;
                 beginLocalBattle();
             }
+        } else if (isOnlineMode()) {
+            placementMode = false;
+            placementControls.setVisible(false);
+            refreshBoards();
+            statusLabel.setText(localized("Очікуємо готовність суперника", "Waiting for opponent readiness"));
+            if (onlineMatch != null) {
+                onlineMatch.markLocalReady();
+            }
+            disableEnemyBoard();
         }
     }
 
@@ -828,6 +1060,9 @@ class BattleshipFrame extends JFrame {
                     if (targetCells[r][c].hasShip()) {
                         aiBtn.setBackground(targetCells[r][c].getShip().isSunk() ? SUNK : HIT);
                         aiBtn.setText("✕");
+                    } else if (targetCells[r][c].isRemoteHit()) {
+                        aiBtn.setBackground(targetCells[r][c].isRemoteSunk() ? SUNK : HIT);
+                        aiBtn.setText("✕");
                     } else {
                         aiBtn.setBackground(MISS);
                         aiBtn.setText("•");
@@ -855,6 +1090,12 @@ class BattleshipFrame extends JFrame {
             disableEnemyBoard();
             return;
         }
+        if (isOnlineMode()) {
+            if (onlineMatch == null || !onlineMatch.isReadyToPlay() || !controller.isPlayerTurn()) {
+                disableEnemyBoard();
+                return;
+            }
+        }
         Board target = getTargetBoardForDisplay();
         if (target == null) {
             disableEnemyBoard();
@@ -877,6 +1118,10 @@ class BattleshipFrame extends JFrame {
         }
     }
 
+    private boolean isOnlineMode() {
+        return currentMode == GameMode.ONLINE_HOST || currentMode == GameMode.ONLINE_CLIENT;
+    }
+
     private void updateSaveButtonState() {
         if (saveGameButton == null) {
             return;
@@ -884,6 +1129,17 @@ class BattleshipFrame extends JFrame {
         boolean enabled = controller != null && currentMode == GameMode.VS_AI && !placementMode
                 && !controller.isGameOver() && controller.isPlayerTurn();
         saveGameButton.setEnabled(enabled);
+    }
+
+    private void shutdownOnlineMatch(boolean notifyOpponent) {
+        if (onlineMatch != null) {
+            if (notifyOpponent) {
+                onlineMatch.disconnect();
+            } else {
+                onlineMatch.shutdown();
+            }
+            onlineMatch = null;
+        }
     }
 
     private void updateStatusForCurrentTurn() {
@@ -898,6 +1154,8 @@ class BattleshipFrame extends JFrame {
             statusLabel.setText(controller.isPlayerTurn()
                     ? Localization.t("status.yourTurn", currentLanguage)
                     : Localization.t("status.wait", currentLanguage));
+        } else if (isOnlineMode()) {
+            updateOnlineTurnState();
         } else {
             statusLabel.setText(Localization.t("status.yourTurn", currentLanguage));
         }
@@ -905,6 +1163,7 @@ class BattleshipFrame extends JFrame {
 
     private void returnToMenu() {
         cancelTurnDelay();
+        shutdownOnlineMatch(true);
         showScreen(Screen.MENU);
         updateSaveButtonState();
     }
@@ -966,6 +1225,114 @@ class BattleshipFrame extends JFrame {
         buttons[5].setText(Localization.t("menu.language", currentLanguage));
         buttons[6].setText(Localization.t("menu.resetStats", currentLanguage));
         buttons[7].setText(Localization.t("menu.exit", currentLanguage));
+        if (fullscreenToggle != null) {
+            fullscreenToggle.setText(Localization.t("menu.fullscreen", currentLanguage));
+            fullscreenToggle.setSelected(fullscreen);
+        }
+    }
+
+    @Override
+    public void onOpponentReady() {
+        statusLabel.setText(localized("Суперник готовий", "Opponent is ready"));
+        updateOnlineTurnState();
+    }
+
+    @Override
+    public void onLocalShotResult(ShotResult result) {
+        paintEnemyShot(result);
+        refreshBoards();
+        updateOnlineTurnState();
+    }
+
+    @Override
+    public void onIncomingShot(ShotResult result) {
+        paintPlayerShot(result);
+        refreshBoards();
+        if (controller != null && controller.isGameOver()) {
+            handleOnlineDefeat();
+        } else {
+            updateOnlineTurnState();
+        }
+    }
+
+    @Override
+    public void onTurnChanged(boolean yourTurn) {
+        updateOnlineTurnState();
+    }
+
+    @Override
+    public void onGameOver(boolean localWon) {
+        if (localWon) {
+            handleOnlineWin();
+        } else {
+            handleOnlineDefeat();
+        }
+    }
+
+    @Override
+    public void onNetworkError(String message) {
+        if (controller != null && !controller.isGameOver()) {
+            controller.concludeOnlineGame(true);
+            handleOnlineWin();
+        } else {
+            shutdownOnlineMatch(false);
+        }
+        JOptionPane.showMessageDialog(this,
+                localized("Помилка мережі: ", "Network error: ") + message,
+                Localization.t("window.title", currentLanguage), JOptionPane.ERROR_MESSAGE);
+    }
+
+    @Override
+    public void requestBoardRefresh() {
+        refreshBoards();
+    }
+
+    private void handleOnlineWin() {
+        statusLabel.setText(Localization.t("status.win", currentLanguage));
+        disableEnemyBoard();
+        updateStatsLabel();
+        updateSaveButtonState();
+        shutdownOnlineMatch(false);
+    }
+
+    private void handleOnlineDefeat() {
+        statusLabel.setText(Localization.t("status.lose", currentLanguage));
+        disableEnemyBoard();
+        updateStatsLabel();
+        updateSaveButtonState();
+        shutdownOnlineMatch(false);
+    }
+
+    private void toggleFullscreen() {
+        setFullscreen(!fullscreen);
+    }
+
+    private void setFullscreen(boolean enable) {
+        if (fullscreen == enable) {
+            return;
+        }
+        GraphicsDevice device = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+        Rectangle currentBounds = getBounds();
+        dispose();
+        setUndecorated(enable);
+        if (enable) {
+            windowedBounds = currentBounds;
+            setVisible(true);
+            device.setFullScreenWindow(this);
+        } else {
+            device.setFullScreenWindow(null);
+            setVisible(true);
+            if (windowedBounds != null) {
+                setBounds(windowedBounds);
+            } else {
+                pack();
+                setLocationRelativeTo(null);
+            }
+        }
+        fullscreen = enable;
+        if (fullscreenToggle != null) {
+            fullscreenToggle.setSelected(enable);
+        }
     }
 
     private String localized(String ua, String en) {

@@ -1,6 +1,7 @@
 package battleship;
 
 import java.awt.Point;
+import java.util.List;
 
 class GameController {
     private final Board playerBoard;
@@ -50,6 +51,9 @@ class GameController {
     ShotResult playerFire(int row, int col) {
         if (mode == GameMode.LOCAL_PVP) {
             return localPlayerFire(row, col);
+        }
+        if (isOnlineMode()) {
+            return ShotResult.already(row, col);
         }
         if (!playerTurn || gameOver) {
             return ShotResult.already(row, col);
@@ -124,6 +128,12 @@ class GameController {
             } else {
                 statisticsManager.recordLoss(GameMode.LOCAL_PVP);
             }
+        } else if (isOnlineMode()) {
+            if (defeatedBoard == aiBoard) {
+                statisticsManager.recordWin(mode);
+            } else {
+                statisticsManager.recordLoss(mode);
+            }
         }
     }
 
@@ -181,5 +191,42 @@ class GameController {
 
     GameState createState(Language language) {
         return new GameState(playerBoard, aiBoard, playerTurn, playerOneTurn, mode, language, computerAI);
+    }
+
+    boolean isOnlineMode() {
+        return mode == GameMode.ONLINE_HOST || mode == GameMode.ONLINE_CLIENT;
+    }
+
+    ShotResult applyIncomingOnlineShot(int row, int col) {
+        if (!isOnlineMode() || gameOver) {
+            return ShotResult.already(row, col);
+        }
+        ShotResult result = playerBoard.fireAt(row, col);
+        handleShotResult(playerBoard, row, col, result);
+        return result;
+    }
+
+    ShotResult applyRemoteShotResult(int row, int col, ShotOutcome outcome, java.util.List<Point> sunkCells) {
+        if (!isOnlineMode() || gameOver) {
+            return ShotResult.already(row, col);
+        }
+        ShotResult result = aiBoard.applyRemoteResult(row, col, outcome, sunkCells);
+        handleShotResult(aiBoard, row, col, result);
+        return result;
+    }
+
+    void concludeOnlineGame(boolean localWon) {
+        if (gameOver) {
+            return;
+        }
+        gameOver = true;
+        pendingLocalSwitch = false;
+        if (statisticsManager != null && isOnlineMode()) {
+            if (localWon) {
+                statisticsManager.recordWin(mode);
+            } else {
+                statisticsManager.recordLoss(mode);
+            }
+        }
     }
 }
