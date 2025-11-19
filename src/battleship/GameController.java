@@ -75,7 +75,7 @@ class GameController {
         }
         if (result.getOutcome() == ShotOutcome.SUNK) {
             Ship sunkShip = result.getShip();
-            if (sunkShip != null) {
+            if (sunkShip != null && target.containsShip(sunkShip)) {
                 target.markSurroundingCellsAsMiss(sunkShip);
             }
         }

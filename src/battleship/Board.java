@@ -127,7 +127,7 @@ class Board {
         if (!canPlaceShip(length, row, col, horizontal)) {
             return false;
         }
-        Ship ship = new Ship();
+        Ship ship = new Ship(this);
         for (int i = 0; i < length; i++) {
             int r = horizontal ? row : row + i;
             int c = horizontal ? col + i : col;
@@ -157,6 +157,9 @@ class Board {
     }
 
     void markSurroundingCellsAsMiss(Ship ship) {
+        if (!containsShip(ship)) {
+            return;
+        }
         for (Cell shipCell : ship.getCells()) {
             int baseRow = shipCell.getRow();
             int baseCol = shipCell.getCol();
@@ -178,5 +181,9 @@ class Board {
                 }
             }
         }
+    }
+
+    boolean containsShip(Ship ship) {
+        return ship != null && ship.getOwner() == this && ships.contains(ship);
     }
 }
