@@ -28,6 +28,7 @@ class OnlineMatch {
     private final BufferedReader reader;
     private final Thread readerThread;
     private volatile boolean running = true;
+    private volatile boolean finished = false;
     private volatile boolean localReady;
     private volatile boolean remoteReady;
     private PendingShot pendingShot;
@@ -168,13 +169,23 @@ class OnlineMatch {
         pendingShot = null;
         listener.onLocalShotResult(result);
         listener.requestBoardRefresh();
-        listener.onTurnChanged(controller.isPlayerTurn());
+        if (controller.isGameOver() && !finished) {
+            finished = true;
+            listener.onGameOver(true);
+            shutdown();
+        } else {
+            listener.onTurnChanged(controller.isPlayerTurn());
+        }
     }
 
     private void handleGameOver(String message) {
         String[] parts = message.split(" ");
+        if (finished) {
+            return;
+        }
         boolean localWin = parts.length > 1 && "WIN".equalsIgnoreCase(parts[1]);
         controller.concludeOnlineGame(localWin);
+        finished = true;
         listener.onGameOver(localWin);
         shutdown();
     }

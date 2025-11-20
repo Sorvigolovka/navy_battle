@@ -1292,6 +1292,9 @@ class BattleshipFrame extends JFrame implements OnlineMatch.Listener {
         disableEnemyBoard();
         updateStatsLabel();
         updateSaveButtonState();
+        JOptionPane.showMessageDialog(this,
+                localized("Ви виграли! Вітаємо!", "You won! Congratulations!"),
+                Localization.t("window.title", currentLanguage), JOptionPane.INFORMATION_MESSAGE);
         shutdownOnlineMatch(false);
     }
 
@@ -1300,6 +1303,9 @@ class BattleshipFrame extends JFrame implements OnlineMatch.Listener {
         disableEnemyBoard();
         updateStatsLabel();
         updateSaveButtonState();
+        JOptionPane.showMessageDialog(this,
+                localized("Ви програли. Спробуйте ще раз!", "You lost. Try again!"),
+                Localization.t("window.title", currentLanguage), JOptionPane.WARNING_MESSAGE);
         shutdownOnlineMatch(false);
     }
 
